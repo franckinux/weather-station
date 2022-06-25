@@ -14,7 +14,9 @@ heapless = "0.7.14"
 nb = "1.0.0"
 panic-halt = "0.2.0"
 
+embedded-graphics = "0.7.1"
 max7219 = "0.3.1"
+ssd1306 = "0.7.0"
 
 # Uncomment for the panic example.
 # panic-itm = "0.4.2"

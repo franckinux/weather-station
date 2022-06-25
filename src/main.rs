@@ -19,7 +19,15 @@ use nb::block;
 use stm32f1xx_hal::{pac, prelude::*, timer::Timer};
 use stm32f1xx_hal::spi::{Mode, Phase, Polarity, Spi};
 use stm32f1xx_hal::time;
+use stm32f1xx_hal::i2c::{BlockingI2c, DutyCycle, Mode as I2cMode};
 
+use embedded_graphics::{
+    mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
+    pixelcolor::BinaryColor,
+    prelude::*,
+    text::{Baseline, Text},
+};
+use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 use max7219::MAX7219;
 
 
@@ -39,9 +47,11 @@ fn main() -> ! {
     // `clocks`
     let clocks = rcc.cfgr.freeze(&mut flash.acr);
 
-    // Acquire the GPIOC peripheral
+    // Acquire the GPIO peripherals
+    let mut gpiob = dp.GPIOB.split();
     let mut gpioc = dp.GPIOC.split();
 
+    // Configure led
     // Configure gpio C pin 13 as a push-pull output. The `crh` register is passed to the function
     // in order to configure the port. For pins 0-7, crl should be passed instead.
     let mut led = gpioc.pc13.into_push_pull_output(&mut gpioc.crh);
@@ -50,8 +60,6 @@ fn main() -> ! {
     timer.start(1.Hz()).unwrap();
 
 	// Configure SPI
-    let mut gpiob = dp.GPIOB.split();
-
     let pins = (
         // clk
         gpiob.pb13.into_alternate_push_pull(&mut gpiob.crh),
@@ -73,6 +81,36 @@ fn main() -> ! {
     max7219.power_on().unwrap();
     max7219.set_intensity(0, 5).unwrap();
 
+    // Configre I2C
+    let scl = gpiob.pb10.into_alternate_open_drain(&mut gpiob.crh);
+    let sda = gpiob.pb11.into_alternate_open_drain(&mut gpiob.crh);
+
+    let i2c = BlockingI2c::i2c2(
+        dp.I2C2,
+        (scl, sda),
+        I2cMode::Fast {
+            frequency: time::Hz(400_000),
+            duty_cycle: DutyCycle::Ratio2to1,
+        },
+        clocks,
+        1000,
+        10,
+        1000,
+        1000,
+    );
+
+    // Configure oled display
+    let interface = I2CDisplayInterface::new(i2c);
+    let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
+        .into_buffered_graphics_mode();
+    display.init().unwrap();
+
+    let text_style = MonoTextStyleBuilder::new()
+        .font(&FONT_6X10)
+        .text_color(BinaryColor::On)
+        .build();
+
+    // Loop
     let mut counter = 0;
 
     // Wait for the timer to trigger an update and change the state of the LED
@@ -84,6 +122,15 @@ fn main() -> ! {
 
         let mut counter_str: String<8> = String::new();
         write!(counter_str, "{:08}", counter).unwrap();
+
+        // Write the counter on the oled leds display
+        display.clear();
+        Text::with_baseline(counter_str.as_str(), Point::zero(), text_style, Baseline::Top)
+            .draw(&mut display)
+            .unwrap();
+        display.flush().unwrap();
+
+        // Write the counter on the 7 leds display
         let counter_bytes: [u8; 8] = counter_str.into_bytes()[..].try_into().unwrap();
         max7219.write_str(0, &counter_bytes, 0b00000000).unwrap();
 
