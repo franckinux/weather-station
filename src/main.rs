@@ -1,10 +1,3 @@
-//! Blinks an LED
-//!
-//! This assumes that a LED is connected to pc13 as is the case on the blue pill board.
-//!
-//! Note: Without additional hardware, PC13 should not be used to drive an LED, see page 5.1.2 of
-//! the reference manual for an explanation. This is not an issue on the blue pill.
-
 #![deny(unsafe_code)]
 #![no_std]
 #![no_main]
@@ -21,14 +14,16 @@ use stm32f1xx_hal::spi::{Mode, Phase, Polarity, Spi};
 use stm32f1xx_hal::time;
 use stm32f1xx_hal::i2c::{BlockingI2c, DutyCycle, Mode as I2cMode};
 
-use embedded_graphics::{
-    mono_font::{ascii::FONT_6X10, MonoTextStyleBuilder},
-    pixelcolor::BinaryColor,
-    prelude::*,
-    text::{Baseline, Text},
-};
-use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
+use bme280_multibus::{i2c::Address, Bme280, Sample};
+// use embedded_graphics::{
+//     mono_font::{ascii::FONT_8X13, MonoTextStyleBuilder},
+//     pixelcolor::BinaryColor,
+//     prelude::*,
+//     text::{Baseline, Text},
+// };
 use max7219::MAX7219;
+use shared_bus::BusManagerSimple;
+use ssd1306::{prelude::*, I2CDisplayInterface, Ssd1306};
 
 
 #[entry]
@@ -98,20 +93,32 @@ fn main() -> ! {
         1000,
         1000,
     );
+    let i2c_bus = BusManagerSimple::new(i2c);
 
     // Configure oled display
-    let interface = I2CDisplayInterface::new(i2c);
+    let interface = I2CDisplayInterface::new(i2c_bus.acquire_i2c());
     let mut display = Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
-        .into_buffered_graphics_mode();
+        .into_terminal_mode();
     display.init().unwrap();
 
-    let text_style = MonoTextStyleBuilder::new()
-        .font(&FONT_6X10)
-        .text_color(BinaryColor::On)
-        .build();
+    // Configure BMP280
+    const BME280_SETTINGS: bme280_multibus::Settings = bme280_multibus::Settings {
+        config: bme280_multibus::Config::reset()
+            .set_standby_time(bme280_multibus::Standby::Millis1000)
+            .set_filter(bme280_multibus::Filter::X16),
+        ctrl_meas: bme280_multibus::CtrlMeas::reset()
+            .set_osrs_t(bme280_multibus::Oversampling::X8)
+            .set_osrs_p(bme280_multibus::Oversampling::X8)
+            .set_mode(bme280_multibus::Mode::Normal),
+        ctrl_hum: bme280_multibus::Oversampling::X8,
+    };
+
+    let mut bme280 = Bme280::from_i2c(i2c_bus.acquire_i2c(), Address::SdoGnd).unwrap();
+    bme280.settings(&BME280_SETTINGS).unwrap();
 
     // Loop
     let mut counter = 0;
+    let mut sample: Sample;
 
     // Wait for the timer to trigger an update and change the state of the LED
     loop {
@@ -120,17 +127,28 @@ fn main() -> ! {
         block!(timer.wait()).unwrap();
         led.set_low();
 
-        let mut counter_str: String<8> = String::new();
-        write!(counter_str, "{:08}", counter).unwrap();
+        // Write the temperature, pressure and humidity on the oled display
+        // display.clear().unwrap();
+        sample = bme280.sample().unwrap();
 
-        // Write the counter on the oled leds display
-        display.clear();
-        Text::with_baseline(counter_str.as_str(), Point::zero(), text_style, Baseline::Top)
-            .draw(&mut display)
-            .unwrap();
-        display.flush().unwrap();
+        let mut temp_str: String<8> = String::new();
+        write!(temp_str, "{:.2}°C", sample.temperature).unwrap();
+        display.set_position(0, 0).unwrap();
+        display.write_str(temp_str.as_str()).unwrap();
+
+        let mut pressure_str: String<16> = String::new();
+        write!(pressure_str, "{:.1}hPa", sample.pressure / 100.0).unwrap();
+        display.set_position(0, 1).unwrap();
+        display.write_str(pressure_str.as_str()).unwrap();
+
+        let mut humidity_str: String<8> = String::new();
+        write!(humidity_str, "{:.2}%", sample.humidity).unwrap();
+        display.set_position(0, 2).unwrap();
+        display.write_str(humidity_str.as_str()).unwrap();
 
         // Write the counter on the 7 leds display
+        let mut counter_str: String<8> = String::new();
+        write!(counter_str, "{:08}", counter).unwrap();
         let counter_bytes: [u8; 8] = counter_str.into_bytes()[..].try_into().unwrap();
         max7219.write_str(0, &counter_bytes, 0b00000000).unwrap();
 

@@ -14,8 +14,10 @@ heapless = "0.7.14"
 nb = "1.0.0"
 panic-halt = "0.2.0"
 
+bme280-multibus = "0.2.1"
 embedded-graphics = "0.7.1"
 max7219 = "0.3.1"
+shared-bus = "0.2.4"
 ssd1306 = "0.7.0"
 
 # Uncomment for the panic example.
@@ -45,3 +47,8 @@ bench = false
 codegen-units = 1 # better optimizations
 debug = true # symbols are nice and they don't increase the size on Flash
 lto = true # better optimizations
+
+# Optimize all dependencies
+# https://stackoverflow.com/questions/58075821/rust-embedded-binary-size
+[profile.dev.package."*"]
+opt-level = "z"
