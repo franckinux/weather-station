@@ -2,7 +2,7 @@
 authors = ["Franck Barbenoire <contact@franck-barbenoire.fr>"]
 edition = "2021"
 readme = "README.md"
-name = "electronic-clock"
+name = "wheather-station"
 version = "0.1.0"
 
 [dependencies]
@@ -37,7 +37,7 @@ features = ["rt", "stm32f103", "medium"]
 
 # this lets you use `cargo fix`!
 [[bin]]
-name = "electronic-clock"
+name = "wheather-station"
 test = false
 bench = false
 
